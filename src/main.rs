@@ -5,6 +5,8 @@ use image::{codecs::jpeg::JpegEncoder, io::Reader as ImageReader};
 
 /// Example usage
 fn main() {
+    println!("Example usage:");
+    println!("cargo run --release autumn_park_1k.exr autumn_park_1k_out.exr");
     let mut args = env::args();
     args.next();
     let input_path = args.next().unwrap();
