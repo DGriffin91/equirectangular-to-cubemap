@@ -32,6 +32,13 @@ fn new_dyn_image(like_img: &DynamicImage, w: u32, h: u32) -> DynamicImage {
     }
 }
 
+pub fn nearest_px(img: &DynamicImage, x: f32, y: f32) -> <DynamicImage as GenericImageView>::Pixel {
+    img.get_pixel(
+        (x as u32).rem_euclid(img.width()),
+        (y as u32).rem_euclid(img.height()),
+    )
+}
+
 pub fn convert(in_img: &DynamicImage, face_size: u32) -> DynamicImage {
     let mut output_image = new_dyn_image(in_img, face_size, face_size * 6);
 
@@ -48,17 +55,11 @@ pub fn convert(in_img: &DynamicImage, face_size: u32) -> DynamicImage {
                 );
                 let lon = pos.y.atan2(pos.x).rem_euclid(TAU);
                 let lat = (pos.z / pos.length()).acos();
-                let sample_x = (in_img.width() as f32 * lon / PI / 2.0) as u32;
-                let sample_y = (in_img.height() as f32 * lat / PI) as u32;
+                let sample_x = in_img.width() as f32 * lon / PI / 2.0;
+                let sample_y = in_img.height() as f32 * lat / PI;
                 // TODO Currently just nearest neighbor sampling
-                output_image.put_pixel(
-                    x,
-                    y + side as u32 * face_size,
-                    in_img.get_pixel(
-                        sample_x.rem_euclid(in_img.width()),
-                        sample_y.rem_euclid(in_img.height()),
-                    ),
-                );
+                let pix = nearest_px(in_img, sample_x, sample_y);
+                output_image.put_pixel(x, y + side as u32 * face_size, pix);
             }
         }
     }
