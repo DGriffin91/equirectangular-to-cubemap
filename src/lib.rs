@@ -1,8 +1,7 @@
-use image::{GenericImage, GenericImageView};
+use image::{ImageBuffer, Pixel, Rgba};
 use std::f32::consts::{PI, TAU};
 
 use glam::Vec3;
-use image::DynamicImage;
 
 fn orientation(x: f32, y: f32, side: u8) -> Vec3 {
     match side {
@@ -15,32 +14,39 @@ fn orientation(x: f32, y: f32, side: u8) -> Vec3 {
     }
 }
 
-// TODO Is there something like this in the image crate?
-fn new_dyn_image(like_img: &DynamicImage, w: u32, h: u32) -> DynamicImage {
-    match like_img {
-        DynamicImage::ImageLuma8(_) => DynamicImage::new_luma8(w, h),
-        DynamicImage::ImageLumaA8(_) => DynamicImage::new_luma_a8(w, h),
-        DynamicImage::ImageRgb8(_) => DynamicImage::new_rgb8(w, h),
-        DynamicImage::ImageRgba8(_) => DynamicImage::new_rgba8(w, h),
-        DynamicImage::ImageLuma16(_) => DynamicImage::new_luma16(w, h),
-        DynamicImage::ImageLumaA16(_) => DynamicImage::new_luma_a16(w, h),
-        DynamicImage::ImageRgb16(_) => DynamicImage::new_rgb16(w, h),
-        DynamicImage::ImageRgba16(_) => DynamicImage::new_rgba16(w, h),
-        DynamicImage::ImageRgb32F(_) => DynamicImage::new_rgb32f(w, h),
-        DynamicImage::ImageRgba32F(_) => DynamicImage::new_rgba32f(w, h),
-        _ => unreachable!(),
-    }
-}
-
-pub fn nearest_px(img: &DynamicImage, x: f32, y: f32) -> <DynamicImage as GenericImageView>::Pixel {
-    img.get_pixel(
+pub fn nearest_px(img: &ImageBuffer<Rgba<f32>, Vec<f32>>, x: f32, y: f32) -> Rgba<f32> {
+    *img.get_pixel(
         (x as u32).rem_euclid(img.width()),
         (y as u32).rem_euclid(img.height()),
     )
 }
 
-pub fn convert(in_img: &DynamicImage, face_size: u32) -> DynamicImage {
-    let mut output_image = new_dyn_image(in_img, face_size, face_size * 6);
+pub fn linear_px(img: &ImageBuffer<Rgba<f32>, Vec<f32>>, x: f32, y: f32) -> Rgba<f32> {
+    let p00 = nearest_px(img, x.floor(), y.floor());
+    let p10 = nearest_px(img, x.ceil(), y.floor());
+    let p01 = nearest_px(img, x.floor(), y.ceil());
+    let p11 = nearest_px(img, x.ceil(), y.ceil());
+    let xd = x - x.floor();
+    let yd = y - y.floor();
+
+    let p0 = p00.map2(&p10, |a, b| a * (1.0 - xd) + b * xd);
+    let p1 = p01.map2(&p11, |a, b| a * (1.0 - xd) + b * xd);
+
+    p0.map2(&p1, |a, b| a * (1.0 - yd) + b * yd)
+}
+
+// TODO more samplers
+pub enum Sampler {
+    Nearest,
+    Bilinear,
+}
+
+pub fn convert(
+    img: &ImageBuffer<Rgba<f32>, Vec<f32>>,
+    face_size: u32,
+    sampler: Sampler,
+) -> ImageBuffer<Rgba<f32>, Vec<f32>> {
+    let mut output_image = ImageBuffer::new(face_size, face_size * 6);
 
     for side in 0..6 {
         for x in 0..face_size {
@@ -55,31 +61,16 @@ pub fn convert(in_img: &DynamicImage, face_size: u32) -> DynamicImage {
                 );
                 let lon = pos.y.atan2(pos.x).rem_euclid(TAU);
                 let lat = (pos.z / pos.length()).acos();
-                let sample_x = in_img.width() as f32 * lon / PI / 2.0;
-                let sample_y = in_img.height() as f32 * lat / PI;
+                let sample_x = img.width() as f32 * lon / PI / 2.0;
+                let sample_y = img.height() as f32 * lat / PI;
                 // TODO Currently just nearest neighbor sampling
-                let pix = nearest_px(in_img, sample_x, sample_y);
+                let pix = match sampler {
+                    Sampler::Nearest => nearest_px(img, sample_x, sample_y),
+                    Sampler::Bilinear => linear_px(img, sample_x, sample_y),
+                };
                 output_image.put_pixel(x, y + side as u32 * face_size, pix);
             }
         }
     }
     output_image
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use image::io::Reader as ImageReader;
-
-    #[test]
-    fn test_conv() {
-        let img = ImageReader::open("autumn_park_1k.jpg")
-            .unwrap()
-            .decode()
-            .unwrap();
-        convert(&img, img.width() / 4)
-            .save("autumn_park_1k_out.jpg")
-            .unwrap();
-    }
 }
